@@ -294,9 +294,8 @@ void TritonState::handle_syscall() {
 */      
       break;
     }
-    case SYS_writev:
     case SYS_open: {
-      api.convertRegisterToSymbolicVariable(arch::x86::x86_reg_rax, "return from syscall");
+      api.convertRegisterToSymbolicVariable(arch::x86::x86_reg_rax, "return from openat()");
       break;
     }
     case SYS_lseek: {
