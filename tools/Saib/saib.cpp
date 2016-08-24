@@ -3,25 +3,37 @@
 #include "SymExecutor.h"
 #include "DisHelper.h"
 #include "MapsHelper.h"
+#include "common.h"
 
 #include <string>
 #include <iostream>
 #include <set>
 #include <map>
 #include <vector>
+#include <fstream>
 
 #include <stdlib.h>
 #include <err.h>
+#include <unistd.h>
 
 using namespace std;
 
 static set<uint64_t> updated_mem_set;
 
+ofstream fout;
+string control_flow;
+
 int main(int argc, char** argv) {
-  assert(argc == 4);
+  assert(argc >= 4);
+  
+  fout.open(string("out.")+to_string(getpid()));
+  
   string executable = argv[1];
   uint64_t start_addr = stoull(argv[2], 0, 16);
   uint64_t end_addr = stoull(argv[3], 0, 16);
+  
+  if(argc == 5)
+    control_flow = argv[4];
   
   pid_t pid = create_debugger(executable, start_addr);
   SymExecutor* sym_executor = SymExecutor::create(SymExecutor::impl::TRITON);
@@ -62,7 +74,7 @@ int main(int argc, char** argv) {
   assert(mem_buf);
   std::vector<map_t> data_segments = get_data_segments(pid);
   for(auto iter = data_segments.begin(); iter != data_segments.end(); ++iter) {
-    cout << hex << iter->filename << ": " << iter->addr << " ~ " << iter->endaddr << endl;
+    fout << hex << iter->filename << ": " << iter->addr << " ~ " << iter->endaddr << endl;
     size_t size = iter->endaddr - iter->addr;
     assert(size <= MAX_SIZE);
     get_mem(iter->addr, mem_buf, size);
@@ -94,5 +106,5 @@ int main(int argc, char** argv) {
   }
   
   delete sym_executor;
-  cout << "done!" << endl;
+  fout << "done! control flow: " << control_flow << endl;
 }

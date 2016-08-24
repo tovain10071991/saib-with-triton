@@ -1,6 +1,7 @@
 #include "TritonEngine.h"
 #include "TritonState.h"
 #include "DummyMemoryManager.h"
+#include "common.h"
 
 #include "triton/api.hpp"
 #include "triton/x86Specifications.hpp"
@@ -24,12 +25,12 @@ TritonEngine::TritonEngine() {
 
 TritonEngine::~TritonEngine() {
   auto sym_vars = api.getSymbolicVariables();
-  cout << "====sym var====" << endl;
+  fout << "====sym var====" << endl;
   for(auto sym_var = sym_vars.begin(); sym_var != sym_vars.end(); ++sym_var) {
-    cout << sym_var->first << ": " << sym_var->second << endl;
-    cout << api.getFullAst(api.getAstVariableNode(sym_var->second->getName())) << endl;  
+    fout << sym_var->first << ": " << sym_var->second << endl;
+    fout << api.getFullAst(api.getAstVariableNode(sym_var->second->getName())) << endl;  
   }
-  cout << "====end of sym var====" << endl;
+  fout << "====end of sym var====" << endl;
 }
 
 ExecutionState* TritonEngine::execute(void* inst_content, size_t size, uint64_t addr) {
