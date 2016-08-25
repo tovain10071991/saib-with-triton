@@ -10,12 +10,15 @@ TRITON_LIB_DIR = /mnt/sdb/Triton-install/lib
 UDIS86_INCLUDE_DIR := /mnt/sdb/udis86-1.7.2-install/include/
 UDIS86_LIB_DIR := /mnt/sdb/udis86-1.7.2-install/lib/
 
+PROTOBUF_INCLUDE_DIR := /home/user/Documents/protobuf-2.5.0-install/include/
+PROTOBUF_LIB_DIR := /home/user/Documents/protobuf-2.5.0-install/lib/
+
 LIB_DIR = $(ROOT_DIR)/lib
 INCLUDE_DIR = $(ROOT_DIR)/include
 
 CXXFLAGS += -I$(INCLUDE_DIR)
-LDFLAGS += -L$(ELF_LIB_DIR) -L$(LLDB_LIB_DIR) -L$(TRITON_LIB_DIR) -L$(UDIS86_LIB_DIR)
-LDFLAGS += -lelf -llldb -lLLVM-3.4 -ltriton -ludis86
+LDFLAGS += -L$(ELF_LIB_DIR) -L$(LLDB_LIB_DIR) -L$(TRITON_LIB_DIR) -L$(UDIS86_LIB_DIR) -L$(PROTOBUF_LIB_DIR)
+LDFLAGS += -lelf -llldb -lLLVM-3.4 -ltriton -ludis86 -lprotobuf
 
 CXXFLAGS += -g --std=c++11
 LDFLAGS += --std=c++11

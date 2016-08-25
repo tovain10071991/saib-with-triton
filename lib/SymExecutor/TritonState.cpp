@@ -1,6 +1,7 @@
 #include "TritonState.h"
 #include "DummyMemoryManager.h"
 #include "common.h"
+#include "protobufHelper.h"
 
 #include "triton/api.hpp"
 #include "triton/operandWrapper.hpp"
@@ -219,6 +220,8 @@ void TritonState::print_exprs() {
 
 unsigned control_count = 0;
 
+vector<ast::AbstractNode*> constraint_set;
+
 uint64_t TritonState::get_next_addr() {
   auto reg_expr_set = api.getSymbolicRegisters();
   assert(reg_expr_set.find(arch::x86::x86_reg_rip) != reg_expr_set.end());
@@ -233,6 +236,26 @@ uint64_t TritonState::get_next_addr() {
   */
   if(!rip_expr->getAst()->isSymbolized()) {
     uint64_t rip_val =  api.getConcreteRegisterValue(arch::x86::x86_reg_rip).convert_to<uint64_t>();
+
+    switch(inst.getType()) {
+      case arch::x86::ID_INS_RET:
+      case arch::x86::ID_INS_RETF:
+      case arch::x86::ID_INS_RETFQ: {
+        output_indirect(inst.getAddress(), rip_val);
+        break;
+      }
+      case arch::x86::ID_INS_JMP:
+      case arch::x86::ID_INS_LJMP:
+      case arch::x86::ID_INS_CALL:
+      case arch::x86::ID_INS_LCALL: {
+        if(inst.getReadRegisters().empty() && !inst.isMemoryRead())
+          break;
+        if(inst.getReadRegisters().size()==1 && inst.getReadRegisters().begin()->first.getName() == arch::x86::x86_reg_rsp.getName())
+          break;
+        output_indirect(inst.getAddress(), rip_val);
+      }
+    }
+
     return rip_val;
   }
   auto id_expr_set = api.getSymbolicExpressions();
@@ -245,7 +268,10 @@ uint64_t TritonState::get_next_addr() {
     }
   }
   assert(id_expr != id_expr_set.end());
-  if(inst.isBranch()) {
+  if(inst.isBranch() || inst.isPrefixed()) {
+    if(inst.isPrefixed())
+      assert(inst.getPrefix() != arch::x86::ID_PREFIX_INVALID && inst.getPrefix() != arch::x86::ID_PREFIX_LOCK && inst.getPrefix() != arch::x86::ID_PREFIX_LAST_ITEM);
+    
     fout << "here branch" << endl;
     cerr << "here branch" << endl;
     switch(inst.getType()) {
@@ -263,6 +289,17 @@ uint64_t TritonState::get_next_addr() {
         
     int next_flow = 0;
     
+    auto path_constraint_set = api.getPathConstraints();
+    
+    fout << "====path constraints====" << endl;
+    for(auto iter = path_constraint_set.begin(); iter != path_constraint_set.end(); ++iter) {
+      fout << iter->getTakenPathConstraintAst() << endl;
+    }
+    
+    auto path_constraint = path_constraint_set.back();
+     
+    assert(path_constraint.isMultipleBranches());
+    
     if(control_flow.size() > control_count) {
       next_flow = control_flow[control_count] - '0';
     } else {
@@ -271,21 +308,89 @@ uint64_t TritonState::get_next_addr() {
     ++control_count;
     
     if(!next_flow) {
+
       uint64 addr = inst.getNextAddress();
-      ast::BvNode* addr_node = new ast::BvNode(addr, 64);
-      ast::EqualNode* equal_node = new ast::EqualNode(api.getAstFromId(id), addr_node);
-      auto constraint = api.newSymbolicExpression(equal_node, "cond not taken");
-      api.addPathConstraint(inst, constraint);
+      
+      auto branch_constraint_set = path_constraint.getBranchConstraints();
+      assert(branch_constraint_set.size()==2);
+      for(auto iter = branch_constraint_set.begin(); iter != branch_constraint_set.end(); ++iter) {
+        fout << "====branch constraints====" << endl << hex << get<0>(*iter) << " " << get<1>(*iter) << " " << get<2>(*iter) << " " << get<3>(*iter) << endl;
+        if(addr == get<2>(*iter)) {
+            constraint_set.push_back(get<3>(*iter));
+        }
+      }
+
+      auto true_node = new ast::BvNode(1, 1);
+      ast::AbstractNode* constraint = new ast::EqualNode(true_node, true_node);
+      for(auto iter = constraint_set.begin(); iter != constraint_set.end(); ++iter) {
+        constraint = new ast::LandNode(constraint, *iter);
+      }
+      fout << "after adding constraint" << endl;
+      fout << constraint << endl;
+      fout << "sym var value" << endl;
+      auto models = api.getModel(new ast::AssertNode(constraint));
+      
+      if(models.empty()) {
+        ofstream control_output("control_output");
+        control_output << control_flow << endl;
+        assert(0);
+      }
+      
+      for(auto iter = models.begin(); iter != models.end(); ++iter) {
+        fout << api.getSymbolicVariableFromId(iter->first) << ": " << iter->second.getValue().convert_to<uint64_t>() << endl;
+      }
+
+      // ast::BvNode* addr_node = new ast::BvNode(addr, 64);
+      // ast::EqualNode* equal_node = new ast::EqualNode(api.getAstFromId(id), addr_node);
+      // auto constraint = api.newSymbolicExpression(equal_node, "cond not taken");      
+      // api.addPathConstraint(inst, constraint);      
+      
       return addr;
     } else {
-      uint64 addr = inst.operands[0].getImmediate().getValue();
-      ast::BvNode* addr_node = new ast::BvNode(addr, 64);
-      ast::EqualNode* equal_node = new ast::EqualNode(api.getAstFromId(id), addr_node);
-      auto constraint = api.newSymbolicExpression(equal_node, "cond taken");
-      api.addPathConstraint(inst, constraint);
+      uint64 addr;
+      if(inst.isBranch())
+        addr = inst.operands[0].getImmediate().getValue();
+      else
+        addr = inst.getAddress();
+      auto branch_constraint_set = path_constraint.getBranchConstraints();
+      assert(branch_constraint_set.size()==2);
+      for(auto iter = branch_constraint_set.begin(); iter != branch_constraint_set.end(); ++iter) {
+        fout << "====branch constraints====" << endl << hex << get<0>(*iter) << " " << get<1>(*iter) << " " << get<2>(*iter) << " " << get<3>(*iter) << endl;
+        if(addr == get<2>(*iter)) {
+            constraint_set.push_back(get<3>(*iter));
+        }
+      }
+
+      auto true_node = new ast::BvNode(1, 1);
+      ast::AbstractNode* constraint = new ast::EqualNode(true_node, true_node);
+      for(auto iter = constraint_set.begin(); iter != constraint_set.end(); ++iter) {
+        constraint = new ast::LandNode(constraint, *iter);
+      }
+      fout << "after adding constraint" << endl;
+      fout << constraint << endl;
+      fout << "sym var value" << endl;
+      auto models = api.getModel(new ast::AssertNode(constraint));
+      
+      if(models.empty()) {
+        ofstream control_output("control_output");
+        control_output << control_flow << endl;
+        assert(0);
+      }
+      
+      for(auto iter = models.begin(); iter != models.end(); ++iter) {
+        fout << api.getSymbolicVariableFromId(iter->first) << ": " << iter->second.getValue().convert_to<uint64_t>() << endl;
+      }
+      
+      // ast::BvNode* addr_node = new ast::BvNode(addr, 64);
+      // ast::EqualNode* equal_node = new ast::EqualNode(api.getAstFromId(id), addr_node);
+      // auto constraint = api.newSymbolicExpression(equal_node, "cond taken");
+      // api.addPathConstraint(inst, constraint);
       return addr;
     }
   }
+  else
+    assert(0);
+    // return id_expr->second->getAst()->evaluate().convert_to<uint64_t>();
 }
 
 bool TritonState::is_syscall() {
@@ -336,13 +441,15 @@ void TritonState::handle_syscall() {
       
       auto sym_ret = api.convertRegisterToSymbolicVariable(arch::x86::x86_reg_rax, "return from read()");
 
-      ast::BvNode* addr_node = new ast::BvNode(1024, 64);
-      ast::VariableNode* sym_node = new ast::VariableNode(sym_ret);
-      ast::BvuleNode* ule_node = new ast::BvuleNode(sym_node, addr_node);
-      auto constraint = api.newSymbolicExpression(ule_node, "cond taken");
-      api.addPathConstraint(inst, constraint);
-      auto api.getPathConstraintsAst();
+      ast::BvNode* size_node = new ast::BvNode(1024, 64);
+      ast::VariableNode* sym_node = new ast::VariableNode(*sym_ret);
+      ast::BvuleNode* ule_node = new ast::BvuleNode(sym_node, size_node);
+      // auto constraint = api.newSymbolicExpression(ule_node, "cond taken");
       
+      constraint_set.push_back(ule_node);
+      
+      // api.addPathConstraint(inst, constraint);
+      // auto api.getPathConstraintsAst();      
 
       break;
     }

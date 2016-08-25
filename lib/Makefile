@@ -7,6 +7,7 @@ build:
 	$(MAKE) -C SymExecutor
 	$(MAKE) -C DisHelper
 	$(MAKE) -C MapsHelper
+	$(MAKE) -C protobufHelper
 
 clean:
 	$(MAKE) -C Common clean
@@ -15,3 +16,4 @@ clean:
 	$(MAKE) -C SymExecutor clean
 	$(MAKE) -C DisHelper clean
 	$(MAKE) -C MapsHelper clean
+	$(MAKE) -C protobufHelper clean

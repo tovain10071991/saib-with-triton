@@ -107,4 +107,7 @@ int main(int argc, char** argv) {
   
   delete sym_executor;
   fout << "done! control flow: " << control_flow << endl;
+  
+  ofstream control_output("control_output");
+  control_output << control_flow << endl;
 }
